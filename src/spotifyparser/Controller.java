@@ -62,6 +62,7 @@ public class Controller implements Initializable {
 	@FXML
 	private Slider trackSlider;
 
+	private String artistName;
 	private List<Album> albums;
 	private MediaPlayer mediaPlayer;
 	private final SpotifyController controller;
@@ -138,8 +139,6 @@ public class Controller implements Initializable {
 	private void displayAlbum(int number) {
 		// TODO - Display all the informations about the album
 		//
-		//        Artist Name 
-		//        Album Name
 		//        Album Cover Image
 		//        Enable next/previous album buttons, if there is more than one album
 
@@ -155,18 +154,15 @@ public class Controller implements Initializable {
 		trackSlider.setDisable(true);
 
 		// Update labels
+		artistLabel.setText(this.artistName);
+		albumLabel.setText(album.getAlbumName());
 	}
 
 	private List<Album> searchAlbumsFromArtist(String artistName) {
 		try {
 			String artistId = controller.getArtistId(artistName);
-			System.out.println("Artist ID: " + artistId);
-
 			List<String> albumIds = controller.getAlbumIds(artistId);
-			System.out.println("Album IDs: " + albumIds);
-
 			List<Album> data = controller.getAlbumsData(albumIds);
-			System.out.println("Album Data: " + data);
 
 			return data;
 		} catch (IOException ex) {
@@ -226,7 +222,8 @@ public class Controller implements Initializable {
 		});
 
 		// Initialize GUI
-		this.albums = searchAlbumsFromArtist("Pink Floyd");
+		this.artistName = "Pink Floyd";
+		this.albums = searchAlbumsFromArtist(artistName);
 		displayAlbum(0);
 	}
 }

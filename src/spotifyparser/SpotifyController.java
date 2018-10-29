@@ -217,20 +217,16 @@ public class SpotifyController {
 			// Determine how many requests will be needed,
 			// since there is a maximum of 20 albums per request.
 			int numberOfRequests = (int) Math.ceil(albumIds.size() / 20.0);
-			System.out.println(numberOfRequests);
 
 			for (int i = 0; i < numberOfRequests; ++i) {
 				// Get sublist of albums to be requested in this iteration
 				List<String> sublist = albumIds.subList(20 * i, Math.min(albumIds.size(), 20 * i + 19));
-
-				System.out.println(sublist);
 
 				// Prepare and send query
 				String str = sublist.toString().replace(" ", "");
 				String jsonOutput = sendRequest(endpoint, params + str.substring(1, str.length() - 1));
 
 				JsonObject obj = new JsonParser().parse(jsonOutput).getAsJsonObject();
-				System.err.println(obj);
 				obj.get("albums").getAsJsonArray().forEach(elmnt -> {
 					albums.add(parseAlbumJson(elmnt.getAsJsonObject()));
 				});

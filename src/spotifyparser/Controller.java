@@ -6,18 +6,22 @@
 package spotifyparser;
 
 import com.sun.javafx.collections.ObservableListWrapper;
+import java.io.IOException;
 import java.net.URL;
-import java.util.ArrayList;
+import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javafx.application.Platform;
 import javafx.event.Event;
 import javafx.event.EventHandler;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
@@ -25,7 +29,6 @@ import javafx.scene.control.TableView;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
-import javafx.scene.media.Track;
 import javafx.util.Callback;
 import javafx.util.Duration;
 
@@ -35,155 +38,195 @@ import javafx.util.Duration;
  */
 public class Controller implements Initializable {
 
-    @FXML
-    TableView tracksTableView;
+	@FXML
+	private TableView tracksTableView;
 
-    @FXML
-    Slider trackSlider;
+	@FXML
+	private Label artistLabel;
 
-    // Other Fields...
-    ScheduledExecutorService sliderExecutor = null;
-    MediaPlayer mediaPlayer = null;
+	@FXML
+	private Label albumLabel;
 
-    ArrayList<Album> albums = null;
-    int currentAlbumIndex = 0;
+	@FXML
+	private Label durationLabel;
 
-    private void playPauseTrackPreview(Button source, String trackPreviewUrl) {
-        try {
-            if (source.getText().equals("Play")) {
-                if (mediaPlayer != null) {
-                    mediaPlayer.stop();
-                }
+	@FXML
+	private Button playButton;
 
-                source.setText("Stop");
-                trackSlider.setDisable(false);
-                trackSlider.setValue(0.0);
+	@FXML
+	private Button previousButton;
 
-                // Start playing music
-                Media music = new Media(trackPreviewUrl);
-                mediaPlayer = new MediaPlayer(music);
-                mediaPlayer.play();
+	@FXML
+	private Button nextButton;
 
-                // This runnable object will be called
-                // when the track is finished or stopped
-                Runnable stopTrackRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        source.setText("Play");
-                        if (sliderExecutor != null) {
-                            sliderExecutor.shutdownNow();
-                        }
-                    }
-                };
-                mediaPlayer.setOnEndOfMedia(stopTrackRunnable);
-                mediaPlayer.setOnStopped(stopTrackRunnable);
+	@FXML
+	private Slider trackSlider;
 
-                // Schedule the slider to move right every second
-                sliderExecutor = Executors.newSingleThreadScheduledExecutor();
-                sliderExecutor.scheduleAtFixedRate(new Runnable() {
-                    @Override
-                    public void run() {
-                        // We can't update the GUI elements on a separate thread... 
-                        // Let's call Platform.runLater to do it in main thread!!
-                        Platform.runLater(new Runnable() {
-                            @Override
-                            public void run() {
-                                // Move slider
-                                trackSlider.setValue(trackSlider.getValue() + 1.0);
-                            }
-                        });
-                    }
-                }, 1, 1, TimeUnit.SECONDS);
-            } else {
-                if (mediaPlayer != null) {
-                    mediaPlayer.stop();
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("error with slider executor... this should not happen!");
-        }
-    }
+	private List<Album> albums;
+	private MediaPlayer mediaPlayer;
+	private final SpotifyController controller;
+	private ScheduledExecutorService sliderExecutor;
 
-    private void displayAlbum(int albumNumber) {
-        // TODO - Display all the informations about the album
-        //
-        //        Artist Name 
-        //        Album Name
-        //        Album Cover Image
-        //        Enable next/previous album buttons, if there is more than one album
+	private int currentAlbumIndex = 0;
 
-        // Display Tracks for the album passed as parameter
-        if (albumNumber >= 0 && albumNumber < albums.size()) {
-            currentAlbumIndex = albumNumber;
-            Album album = albums.get(albumNumber);
+	public Controller() {
+		this.controller = new SpotifyController();
 
-            // Set tracks
-            
-            tracksTableView.setItems(new ObservableListWrapper(album.getTracks()));
+		try {
+			controller.authenticate();
+		} catch (IOException ex) {
+			throw new AssertionError(ex);
+		}
+	}
 
-            trackSlider.setDisable(true);
-            trackSlider.setValue(0.0);
-        }
-    }
+	private void playPauseTrackPreview(Button source, String trackPreviewUrl) {
+		try {
+			if (source.getText().equals("Play")) {
+				if (mediaPlayer != null) {
+					mediaPlayer.stop();
+				}
 
-    private void searchAlbumsFromArtist(String artistName) {
-        // TODO - Make sure this is not blocking the UI
-        
-    }
+				source.setText("Stop");
+				trackSlider.setDisable(false);
+				trackSlider.setValue(0.0);
 
-    @Override
-    public void initialize(URL url, ResourceBundle rb) {
+				// Start playing music
+				Media music = new Media(trackPreviewUrl);
+				mediaPlayer = new MediaPlayer(music);
+				mediaPlayer.play();
 
-        // Setup Table View
-        TableColumn<TrackData, Number> trackNumberColumn = new TableColumn("#");
-        trackNumberColumn.setCellValueFactory(new PropertyValueFactory("trackNumber"));
+				// This runnable object will be called
+				// when the track is finished or stopped
+				Runnable stopTrackRunnable = new Runnable() {
+					@Override
+					public void run() {
+						source.setText("Play");
+						if (sliderExecutor != null) {
+							sliderExecutor.shutdownNow();
+						}
+					}
+				};
+				mediaPlayer.setOnEndOfMedia(stopTrackRunnable);
+				mediaPlayer.setOnStopped(stopTrackRunnable);
 
-        TableColumn trackTitleColumn = new TableColumn("Title");
-        trackTitleColumn.setCellValueFactory(new PropertyValueFactory("trackTitle"));
-        trackTitleColumn.setPrefWidth(250);
+				// Schedule the slider to move right every second
+				sliderExecutor = Executors.newSingleThreadScheduledExecutor();
+				sliderExecutor.scheduleAtFixedRate(new Runnable() {
+					@Override
+					public void run() {
+						// We can't update the GUI elements on a separate thread... 
+						// Let's call Platform.runLater to do it in main thread!!
+						Platform.runLater(new Runnable() {
+							@Override
+							public void run() {
+								// Move slider
+								trackSlider.setValue(trackSlider.getValue() + 1.0);
+							}
+						});
+					}
+				}, 1, 1, TimeUnit.SECONDS);
+			} else {
+				if (mediaPlayer != null) {
+					mediaPlayer.stop();
+				}
+			}
+		} catch (Exception e) {
+			System.err.println("error with slider executor... this should not happen!");
+		}
+	}
 
-        TableColumn playColumn = new TableColumn("Preview");
-        playColumn.setCellValueFactory(new PropertyValueFactory("trackPreviewUrl"));
-        Callback<TableColumn<TrackData, String>, TableCell<TrackData, String>> cellFactory = new Callback<TableColumn<TrackData, String>, TableCell<TrackData, String>>() {
-            @Override
-            public TableCell<TrackData, String> call(TableColumn<TrackData, String> param) {
-                final TableCell<TrackData, String> cell = new TableCell<TrackData, String>() {
-                    final Button playButton = new Button("Play");
+	private void displayAlbum(int number) {
+		// TODO - Display all the informations about the album
+		//
+		//        Artist Name 
+		//        Album Name
+		//        Album Cover Image
+		//        Enable next/previous album buttons, if there is more than one album
 
-                    @Override
-                    public void updateItem(String item, boolean empty) {
-                        if (item != null && item.equals("") == false) {
-                            playButton.setOnAction(event -> {
-                                playPauseTrackPreview(playButton, item);
-                            });
+		// Update data
+		this.currentAlbumIndex = number;
+		Album album = albums.get(number);
 
-                            setGraphic(playButton);
-                        } else {
-                            setGraphic(null);
-                        }
+		// Set tracks
+		tracksTableView.setItems(new ObservableListWrapper(album.getTracks()));
 
-                        setText(null);
-                    }
-                };
+		// Setup slider
+		trackSlider.setValue(0.0);
+		trackSlider.setDisable(true);
 
-                return cell;
-            }
-        };
-        playColumn.setCellFactory(cellFactory);
-        tracksTableView.getColumns().setAll(trackNumberColumn, trackTitleColumn, playColumn);
+		// Update labels
+	}
 
-        // When slider is released, we must seek in the song
-        trackSlider.setOnMouseReleased(new EventHandler() {
-            @Override
-            public void handle(Event event) {
-                if (mediaPlayer != null) {
-                    mediaPlayer.seek(Duration.seconds(trackSlider.getValue()));
-                }
-            }
-        });
+	private List<Album> searchAlbumsFromArtist(String artistName) {
+		try {
+			String artistId = controller.getArtistId(artistName);
+			System.out.println("Artist ID: " + artistId);
 
-        // Initialize GUI
-        searchAlbumsFromArtist("pink floyd");
-        displayAlbum(0);
-    }
+			List<String> albumIds = controller.getAlbumIds(artistId);
+			System.out.println("Album IDs: " + albumIds);
+
+			List<Album> data = controller.getAlbumsData(albumIds);
+			System.out.println("Album Data: " + data);
+
+			return data;
+		} catch (IOException ex) {
+			throw new AssertionError(ex);
+		}
+	}
+
+	@Override
+	public void initialize(URL url, ResourceBundle rb) {
+
+		// Setup Table View
+		TableColumn<TrackData, Number> trackNumberColumn = new TableColumn("#");
+		trackNumberColumn.setCellValueFactory(new PropertyValueFactory("trackNumber"));
+
+		TableColumn trackTitleColumn = new TableColumn("Title");
+		trackTitleColumn.setCellValueFactory(new PropertyValueFactory("trackTitle"));
+		trackTitleColumn.setPrefWidth(250);
+
+		TableColumn playColumn = new TableColumn("Preview");
+		playColumn.setCellValueFactory(new PropertyValueFactory("trackPreviewUrl"));
+		Callback<TableColumn<TrackData, String>, TableCell<TrackData, String>> cellFactory = new Callback<TableColumn<TrackData, String>, TableCell<TrackData, String>>() {
+			@Override
+			public TableCell<TrackData, String> call(TableColumn<TrackData, String> param) {
+				final TableCell<TrackData, String> cell = new TableCell<TrackData, String>() {
+					final Button playButton = new Button("Play");
+
+					@Override
+					public void updateItem(String item, boolean empty) {
+						if (item != null && item.equals("") == false) {
+							playButton.setOnAction(event -> {
+								playPauseTrackPreview(playButton, item);
+							});
+
+							setGraphic(playButton);
+						} else {
+							setGraphic(null);
+						}
+
+						setText(null);
+					}
+				};
+
+				return cell;
+			}
+		};
+		playColumn.setCellFactory(cellFactory);
+		tracksTableView.getColumns().setAll(trackNumberColumn, trackTitleColumn, playColumn);
+
+		// When slider is released, we must seek in the song
+		trackSlider.setOnMouseReleased(new EventHandler() {
+			@Override
+			public void handle(Event event) {
+				if (mediaPlayer != null) {
+					mediaPlayer.seek(Duration.seconds(trackSlider.getValue()));
+				}
+			}
+		});
+
+		// Initialize GUI
+		this.albums = searchAlbumsFromArtist("Pink Floyd");
+		displayAlbum(0);
+	}
 }

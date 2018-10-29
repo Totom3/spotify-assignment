@@ -13,8 +13,6 @@ import java.util.ResourceBundle;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javafx.application.Platform;
 import javafx.event.Event;
 import javafx.event.EventHandler;
@@ -26,6 +24,7 @@ import javafx.scene.control.Slider;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TableColumn.CellDataFeatures;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
@@ -175,7 +174,9 @@ public class Controller implements Initializable {
 
 		// Setup Table View
 		TableColumn<TrackData, Number> trackNumberColumn = new TableColumn("#");
-		trackNumberColumn.setCellValueFactory(new PropertyValueFactory("trackNumber"));
+		trackNumberColumn.setCellValueFactory((CellDataFeatures<TrackData, Number> p) -> {
+			return p.getValue().getTrackNumber();
+		});
 
 		TableColumn trackTitleColumn = new TableColumn("Title");
 		trackTitleColumn.setCellValueFactory(new PropertyValueFactory("trackTitle"));
@@ -191,7 +192,7 @@ public class Controller implements Initializable {
 
 					@Override
 					public void updateItem(String item, boolean empty) {
-						if (item != null && item.equals("") == false) {
+						if (item != null && !item.isEmpty()) {
 							playButton.setOnAction(event -> {
 								playPauseTrackPreview(playButton, item);
 							});

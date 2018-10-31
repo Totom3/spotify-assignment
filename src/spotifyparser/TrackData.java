@@ -8,15 +8,13 @@ public class TrackData {
 	private final String id;
 	private final int length;
 	private final int trackNumber;
-	private final String imageURL;
 	private final String previewURL;
 
-	public TrackData(String name, String id, int length, int trackNumber, String imageURL, String previewURL) {
+	public TrackData(String name, String id, int length, int trackNumber, String previewURL) {
 		this.name = name;
 		this.id = id;
 		this.length = length;
 		this.trackNumber = trackNumber;
-		this.imageURL = imageURL;
 		this.previewURL = previewURL;
 	}
 
@@ -24,14 +22,14 @@ public class TrackData {
 		return trackNumber;
 	}
 
-	public String getImageURL() {
-		return imageURL;
-	}
-
 	public String getPreviewURL() {
 		return previewURL;
 	}
 	
+	public boolean hasPreview() {
+		return previewURL != null;
+	}
+
 	public String getName() {
 		return name;
 	}

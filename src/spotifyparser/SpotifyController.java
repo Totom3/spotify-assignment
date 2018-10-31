@@ -5,17 +5,22 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Scanner;
+import javafx.scene.image.Image;
+import javax.imageio.ImageIO;
+import javax.swing.ImageIcon;
 
 public class SpotifyController {
 
@@ -227,9 +232,9 @@ public class SpotifyController {
 				String jsonOutput = sendRequest(endpoint, params + str.substring(1, str.length() - 1));
 
 				JsonObject obj = new JsonParser().parse(jsonOutput).getAsJsonObject();
-				obj.get("albums").getAsJsonArray().forEach(elmnt -> {
+				for (JsonElement elmnt : obj.get("albums").getAsJsonArray()) {
 					albums.add(parseAlbumJson(elmnt.getAsJsonObject()));
-				});
+				}
 			}
 
 			// Parse result
@@ -239,11 +244,15 @@ public class SpotifyController {
 		}
 	}
 
-	private Album parseAlbumJson(JsonObject obj) {
+	private Album parseAlbumJson(JsonObject obj) throws IOException {
 		String albumName = obj.get("name").getAsString();
 		String artistName = obj.get("artists").getAsJsonArray().get(0).getAsJsonObject().get("name").getAsString();
 		String coverImageURL = obj.get("images").getAsJsonArray().get(0).getAsJsonObject().get("url").getAsString();
 
+		// Fetch image
+		Image coverImage = (coverImageURL != null) ? new Image(coverImageURL) : null;
+
+		// Parse tracks
 		List<TrackData> tracks = new ArrayList<>();
 		JsonArray tracksArray = obj.get("tracks").getAsJsonObject().get("items").getAsJsonArray();
 		for (JsonElement elmnt : tracksArray) {
@@ -251,11 +260,15 @@ public class SpotifyController {
 			String trackName = trackObj.get("name").getAsString();
 			String trackId = trackObj.get("id").getAsString();
 			int length = trackObj.get("duration_ms").getAsInt() / 1000;
+			int trackNumber = trackObj.get("track_number").getAsInt();
 
-			tracks.add(new TrackData(trackName, trackId, length));
+			JsonElement previewObj = trackObj.get("preview_url");
+			String previewURL = previewObj.isJsonNull() ? null : previewObj.getAsString();
+
+			tracks.add(new TrackData(trackName, trackId, length, trackNumber, previewURL));
 		}
 
-		return new Album(artistName, albumName, coverImageURL, tracks);
+		return new Album(artistName, albumName, coverImage, tracks);
 	}
 
 }

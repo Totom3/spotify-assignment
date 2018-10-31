@@ -1,11 +1,7 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package spotifyparser;
 
 import com.sun.javafx.collections.ObservableListWrapper;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
@@ -14,18 +10,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
-import javafx.event.Event;
-import javafx.event.EventHandler;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
-import javafx.scene.control.TableColumn.CellDataFeatures;
-import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.control.TextField;
+import javafx.scene.image.ImageView;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.util.Callback;
@@ -33,12 +30,13 @@ import javafx.util.Duration;
 
 /**
  *
- * @author bergeron
+ * @author Tomer Moran
+ * @author Hany Albouz
  */
 public class Controller implements Initializable {
 
 	@FXML
-	private TableView tracksTableView;
+	private TableView<TrackData> tracksTableView;
 
 	@FXML
 	private Label artistLabel;
@@ -61,16 +59,28 @@ public class Controller implements Initializable {
 	@FXML
 	private Slider trackSlider;
 
+	@FXML
+	private TextField searchField;
+
+	@FXML
+	private ImageView albumCoverImageView;
+
+	@FXML
+	private ProgressIndicator progressIndicator;
+
 	private String artistName;
 	private List<Album> albums;
 	private MediaPlayer mediaPlayer;
 	private final SpotifyController controller;
 	private ScheduledExecutorService sliderExecutor;
+	private ScheduledExecutorService generalExecutor;
 
-	private int currentAlbumIndex = 0;
+	private int currentAlbumIndex;
+	private boolean isPlayingPreview;
 
 	public Controller() {
 		this.controller = new SpotifyController();
+		this.generalExecutor = Executors.newSingleThreadScheduledExecutor();
 
 		try {
 			controller.authenticate();
@@ -79,9 +89,8 @@ public class Controller implements Initializable {
 		}
 	}
 
-	private void playPauseTrackPreview(Button source, String trackPreviewUrl) {
-		try {
-			if (source.getText().equals("Play")) {
+	private void playPauseTrackPreview(TrackData data) {
+		if (source.getText().equals("Play")) {
 				if (mediaPlayer != null) {
 					mediaPlayer.stop();
 				}
@@ -97,13 +106,10 @@ public class Controller implements Initializable {
 
 				// This runnable object will be called
 				// when the track is finished or stopped
-				Runnable stopTrackRunnable = new Runnable() {
-					@Override
-					public void run() {
-						source.setText("Play");
-						if (sliderExecutor != null) {
-							sliderExecutor.shutdownNow();
-						}
+				Runnable stopTrackRunnable = () -> {
+					source.setText("Play");
+					if (sliderExecutor != null) {
+						sliderExecutor.shutdownNow();
 					}
 				};
 				mediaPlayer.setOnEndOfMedia(stopTrackRunnable);
@@ -130,17 +136,44 @@ public class Controller implements Initializable {
 					mediaPlayer.stop();
 				}
 			}
-		} catch (Exception e) {
-			System.err.println("error with slider executor... this should not happen!");
+		
+	}
+
+	private void searchArtist(ActionEvent ae) {
+		progressIndicator.setVisible(true);
+		executeAsync(() -> {
+			loadArtist(searchField.getText());
+			progressIndicator.setVisible(false);
+
+			if (!albums.isEmpty()) {
+				executeSync(() -> displayAlbum(0));
+			}
+		});
+	}
+
+	private void previousAlbum(ActionEvent ae) {
+		displayAlbum(--currentAlbumIndex);
+	}
+
+	private void nextAlbum(ActionEvent ae) {
+		displayAlbum(++currentAlbumIndex);
+	}
+
+	private void loadArtist(String artistName) {
+		try {
+			String artistId = controller.getArtistId(artistName);
+			List<String> albumIds = controller.getAlbumIds(artistId);
+			List<Album> data = controller.getAlbumsData(albumIds);
+
+			this.currentAlbumIndex = 0;
+			this.artistName = artistName;
+			this.albums = data;
+		} catch (IOException ex) {
+			throw new AssertionError(ex);
 		}
 	}
 
 	private void displayAlbum(int number) {
-		// TODO - Display all the informations about the album
-		//
-		//        Album Cover Image
-		//        Enable next/previous album buttons, if there is more than one album
-
 		// Update data
 		this.currentAlbumIndex = number;
 		Album album = albums.get(number);
@@ -155,18 +188,13 @@ public class Controller implements Initializable {
 		// Update labels
 		artistLabel.setText(this.artistName);
 		albumLabel.setText(album.getAlbumName());
-	}
 
-	private List<Album> searchAlbumsFromArtist(String artistName) {
-		try {
-			String artistId = controller.getArtistId(artistName);
-			List<String> albumIds = controller.getAlbumIds(artistId);
-			List<Album> data = controller.getAlbumsData(albumIds);
+		// Update album cover
+		albumCoverImageView.setImage(album.getCoverImage());
 
-			return data;
-		} catch (IOException ex) {
-			throw new AssertionError(ex);
-		}
+		// Enable or disable the buttons
+		previousButton.setDisable(currentAlbumIndex == 0);
+		nextButton.setDisable(currentAlbumIndex == albums.size() - 1);
 	}
 
 	@Override
@@ -174,57 +202,68 @@ public class Controller implements Initializable {
 
 		// Setup Table View
 		TableColumn<TrackData, Number> trackNumberColumn = new TableColumn("#");
-		trackNumberColumn.setCellValueFactory((CellDataFeatures<TrackData, Number> p) -> {
-			return p.getValue().getTrackNumber();
-		});
+		trackNumberColumn.setCellValueFactory(p -> new SimpleObjectProperty<>(p.getValue().getTrackNumber()));
 
-		TableColumn trackTitleColumn = new TableColumn("Title");
-		trackTitleColumn.setCellValueFactory(new PropertyValueFactory("trackTitle"));
+		TableColumn<TrackData, String> trackTitleColumn = new TableColumn("Title");
+		trackTitleColumn.setCellValueFactory(p -> new SimpleObjectProperty<>(p.getValue().getName()));
 		trackTitleColumn.setPrefWidth(250);
 
-		TableColumn playColumn = new TableColumn("Preview");
-		playColumn.setCellValueFactory(new PropertyValueFactory("trackPreviewUrl"));
-		Callback<TableColumn<TrackData, String>, TableCell<TrackData, String>> cellFactory = new Callback<TableColumn<TrackData, String>, TableCell<TrackData, String>>() {
-			@Override
-			public TableCell<TrackData, String> call(TableColumn<TrackData, String> param) {
-				final TableCell<TrackData, String> cell = new TableCell<TrackData, String>() {
-					final Button playButton = new Button("Play");
-
-					@Override
-					public void updateItem(String item, boolean empty) {
-						if (item != null && !item.isEmpty()) {
-							playButton.setOnAction(event -> {
-								playPauseTrackPreview(playButton, item);
-							});
-
-							setGraphic(playButton);
-						} else {
-							setGraphic(null);
-						}
-
-						setText(null);
-					}
-				};
-
-				return cell;
-			}
-		};
+		TableColumn<TrackData, TrackData> playColumn = new TableColumn("Preview");
+		playColumn.setCellValueFactory(p -> new SimpleObjectProperty<>(p.getValue()));
+		Callback<TableColumn<TrackData, TrackData>, TableCell<TrackData, TrackData>> cellFactory = column -> new PlayTableCell();
 		playColumn.setCellFactory(cellFactory);
 		tracksTableView.getColumns().setAll(trackNumberColumn, trackTitleColumn, playColumn);
 
 		// When slider is released, we must seek in the song
-		trackSlider.setOnMouseReleased(new EventHandler() {
-			@Override
-			public void handle(Event event) {
-				if (mediaPlayer != null) {
-					mediaPlayer.seek(Duration.seconds(trackSlider.getValue()));
-				}
+		trackSlider.setOnMouseReleased(event -> {
+			if (mediaPlayer != null) {
+				mediaPlayer.seek(Duration.seconds(trackSlider.getValue()));
 			}
 		});
 
+		progressIndicator.setVisible(false);
+
+		nextButton.setOnAction(this::nextAlbum);
+		previousButton.setOnAction(this::previousAlbum);
+		searchField.setOnAction(this::searchArtist);
+
 		// Initialize GUI
-		this.artistName = "Pink Floyd";
-		this.albums = searchAlbumsFromArtist(artistName);
-		displayAlbum(0);
+		executeAsync(() -> {
+			loadArtist("Pink Floyd");
+
+			if (!albums.isEmpty()) {
+				executeSync(() -> displayAlbum(0));
+			}
+		});
+	}
+
+	private void executeAsync(Runnable r) {
+		generalExecutor.schedule(r, 0, TimeUnit.SECONDS);
+	}
+
+	private void executeSync(Runnable r) {
+		Platform.runLater(r);
+	}
+
+	private class PlayTableCell extends TableCell<TrackData, TrackData> {
+
+		final Button playButton = new Button("Play");
+
+		@Override
+		public void updateItem(TrackData track, boolean empty) {
+			setGraphic(playButton);
+			setText(null);
+
+			if (track == null || !track.hasPreview()) {
+				playButton.setDisable(true);
+			} else {
+				playButton.setDisable(false);
+				playButton.setOnAction(event -> {
+					playPauseTrackPreview(track);
+				});
+
+			}
+
+		}
 	}
 }

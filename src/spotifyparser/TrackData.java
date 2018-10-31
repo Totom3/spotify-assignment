@@ -7,13 +7,31 @@ public class TrackData {
 	private final String name;
 	private final String id;
 	private final int length;
+	private final int trackNumber;
+	private final String imageURL;
+	private final String previewURL;
 
-	public TrackData(String name, String id, int length) {
+	public TrackData(String name, String id, int length, int trackNumber, String imageURL, String previewURL) {
 		this.name = name;
 		this.id = id;
 		this.length = length;
+		this.trackNumber = trackNumber;
+		this.imageURL = imageURL;
+		this.previewURL = previewURL;
 	}
 
+	public int getTrackNumber() {
+		return trackNumber;
+	}
+
+	public String getImageURL() {
+		return imageURL;
+	}
+
+	public String getPreviewURL() {
+		return previewURL;
+	}
+	
 	public String getName() {
 		return name;
 	}
@@ -31,7 +49,6 @@ public class TrackData {
 		int hash = 7;
 		hash = 97 * hash + Objects.hashCode(this.name);
 		hash = 97 * hash + Objects.hashCode(this.id);
-		hash = 97 * hash + this.length;
 		return hash;
 	}
 

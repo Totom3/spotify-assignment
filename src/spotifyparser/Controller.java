@@ -1,31 +1,37 @@
 package spotifyparser;
 
 import com.sun.javafx.collections.ObservableListWrapper;
-import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.ResourceBundle;
+import java.util.WeakHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
+import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.beans.property.SimpleObjectProperty;
+import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.Slider;
-import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.image.ImageView;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
-import javafx.util.Callback;
+import javafx.stage.FileChooser;
+import javafx.stage.Stage;
 import javafx.util.Duration;
 
 /**
@@ -68,15 +74,19 @@ public class Controller implements Initializable {
 	@FXML
 	private ProgressIndicator progressIndicator;
 
+	@FXML
+	private MenuItem saveAlbum;
+
 	private String artistName;
 	private List<Album> albums;
 	private MediaPlayer mediaPlayer;
 	private final SpotifyController controller;
-	private ScheduledExecutorService sliderExecutor;
 	private ScheduledExecutorService generalExecutor;
 
 	private int currentAlbumIndex;
-	private boolean isPlayingPreview;
+	private TrackData currentlyPlayed;
+	private final WeakHashMap<TrackData, Button> tablePlayButtons = new WeakHashMap<>();
+	private ScheduledFuture<?> updateSliderTask;
 
 	public Controller() {
 		this.controller = new SpotifyController();
@@ -89,54 +99,81 @@ public class Controller implements Initializable {
 		}
 	}
 
-	private void playPauseTrackPreview(TrackData data) {
-		if (source.getText().equals("Play")) {
-				if (mediaPlayer != null) {
-					mediaPlayer.stop();
-				}
+	private void handlePlayButton(TrackData track) {
+		if (currentlyPlayed == null) {
+			playPreview(track);
+			this.currentlyPlayed = track;
+			return;
+		}
 
-				source.setText("Stop");
-				trackSlider.setDisable(false);
-				trackSlider.setValue(0.0);
+		// If a track is being played, stop the previous track
+		mediaPlayer.stop();
+		onStopTrack(currentlyPlayed);
 
-				// Start playing music
-				Media music = new Media(trackPreviewUrl);
-				mediaPlayer = new MediaPlayer(music);
-				mediaPlayer.play();
+		// Simply reset the fields if stopping the preview
+		if (currentlyPlayed == track) {
+			this.mediaPlayer = null;
+			this.currentlyPlayed = null;
+			return;
+		}
 
-				// This runnable object will be called
-				// when the track is finished or stopped
-				Runnable stopTrackRunnable = () -> {
-					source.setText("Play");
-					if (sliderExecutor != null) {
-						sliderExecutor.shutdownNow();
-					}
-				};
-				mediaPlayer.setOnEndOfMedia(stopTrackRunnable);
-				mediaPlayer.setOnStopped(stopTrackRunnable);
+		// Playing a different track
+		playPreview(track);
+		this.currentlyPlayed = track;
+	}
 
-				// Schedule the slider to move right every second
-				sliderExecutor = Executors.newSingleThreadScheduledExecutor();
-				sliderExecutor.scheduleAtFixedRate(new Runnable() {
-					@Override
-					public void run() {
-						// We can't update the GUI elements on a separate thread... 
-						// Let's call Platform.runLater to do it in main thread!!
-						Platform.runLater(new Runnable() {
-							@Override
-							public void run() {
-								// Move slider
-								trackSlider.setValue(trackSlider.getValue() + 1.0);
-							}
-						});
-					}
-				}, 1, 1, TimeUnit.SECONDS);
-			} else {
-				if (mediaPlayer != null) {
-					mediaPlayer.stop();
-				}
-			}
-		
+	private void playPreview(TrackData track) {
+		if (mediaPlayer != null) {
+			mediaPlayer.stop();
+		}
+
+		// Update buttons
+		playButton.setText("Stop");
+		getTrackPlayButton(track).setText("Stop");
+
+		// Update slider
+		trackSlider.setValue(0);
+		trackSlider.setDisable(false);
+
+		// Initialize media player
+		Media music = new Media(track.getPreviewURL());
+		mediaPlayer = new MediaPlayer(music);
+		mediaPlayer.play();
+
+		// Handle end of song or stop
+		mediaPlayer.setOnEndOfMedia(() -> onStopTrack(track));
+
+		// Cancel previous task
+		if (updateSliderTask != null) {
+			updateSliderTask.cancel(false);
+			updateSliderTask = null;
+		}
+
+		// Schedule the slider to move every second
+		updateSliderTask = generalExecutor.scheduleAtFixedRate(() -> {
+			executeSync(() -> {
+				// Move slider
+				trackSlider.setValue(trackSlider.getValue() + 1.0);
+			});
+		}, 1, 1, TimeUnit.SECONDS);
+
+		int minutes = track.getLength() / 60;
+		int seconds = track.getLength() % 60;
+		durationLabel.setText("0:0/" + minutes + ":" + seconds);
+	}
+
+	private void onStopTrack(TrackData track) {
+		playButton.setText("Play");
+
+		if (track != null) {
+			getTrackPlayButton(track).setText("Play");
+		}
+
+		if (updateSliderTask != null) {
+			trackSlider.setDisable(true);
+			updateSliderTask.cancel(false);
+			updateSliderTask = null;
+		}
 	}
 
 	private void searchArtist(ActionEvent ae) {
@@ -208,11 +245,12 @@ public class Controller implements Initializable {
 		trackTitleColumn.setCellValueFactory(p -> new SimpleObjectProperty<>(p.getValue().getName()));
 		trackTitleColumn.setPrefWidth(250);
 
-		TableColumn<TrackData, TrackData> playColumn = new TableColumn("Preview");
-		playColumn.setCellValueFactory(p -> new SimpleObjectProperty<>(p.getValue()));
-		Callback<TableColumn<TrackData, TrackData>, TableCell<TrackData, TrackData>> cellFactory = column -> new PlayTableCell();
-		playColumn.setCellFactory(cellFactory);
+		TableColumn<TrackData, Button> playColumn = new TableColumn("Preview");
+		playColumn.setCellValueFactory(p -> new ReadOnlyObjectWrapper<>(getTrackPlayButton(p.getValue())));
 		tracksTableView.getColumns().setAll(trackNumberColumn, trackTitleColumn, playColumn);
+
+		trackNumberColumn.setPrefWidth(30);
+		trackTitleColumn.setMaxWidth(230);
 
 		// When slider is released, we must seek in the song
 		trackSlider.setOnMouseReleased(event -> {
@@ -227,14 +265,30 @@ public class Controller implements Initializable {
 		previousButton.setOnAction(this::previousAlbum);
 		searchField.setOnAction(this::searchArtist);
 
-		// Initialize GUI
-		executeAsync(() -> {
-			loadArtist("Pink Floyd");
+		playButton.setOnAction(ea -> {
+			ObservableList<TrackData> selected = tracksTableView.getSelectionModel().getSelectedItems();
 
-			if (!albums.isEmpty()) {
-				executeSync(() -> displayAlbum(0));
+			TrackData track;
+			if (selected.isEmpty()) {
+				track = albums.get(currentAlbumIndex).getTracks().get(0);
+				tracksTableView.getSelectionModel().clearAndSelect(track.getTrackNumber() - 1);
+			} else {
+				track = selected.get(0);
 			}
+
+			handlePlayButton(track);
 		});
+
+		// Initialize GUI
+		loadArtist("Pink Floyd");
+		if (!albums.isEmpty()) {
+			executeSync(() -> displayAlbum(0));
+		}
+
+	}
+
+	private void saveMenuHandle(ActionEvent ae) {
+		
 	}
 
 	private void executeAsync(Runnable r) {
@@ -245,25 +299,25 @@ public class Controller implements Initializable {
 		Platform.runLater(r);
 	}
 
-	private class PlayTableCell extends TableCell<TrackData, TrackData> {
-
-		final Button playButton = new Button("Play");
-
-		@Override
-		public void updateItem(TrackData track, boolean empty) {
-			setGraphic(playButton);
-			setText(null);
-
-			if (track == null || !track.hasPreview()) {
-				playButton.setDisable(true);
-			} else {
-				playButton.setDisable(false);
-				playButton.setOnAction(event -> {
-					playPauseTrackPreview(track);
-				});
-
-			}
-
+	private Button getTrackPlayButton(TrackData track) {
+		Button button = tablePlayButtons.get(track);
+		if (button != null) {
+			System.out.println("Returning button for " + (track != null ? track.getName() : "null"));
+			return button;
 		}
+
+		System.out.println("Creating button for " + (track != null ? track.getName() : "null"));
+		button = new Button("Play");
+		if (track == null || !track.hasPreview()) {
+			button.setDisable(true);
+		} else {
+			button.setDisable(false);
+			button.setOnAction(event -> {
+				handlePlayButton(track);
+			});
+		}
+
+		tablePlayButtons.put(track, button);
+		return button;
 	}
 }

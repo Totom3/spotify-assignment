@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Scanner;
 import javafx.scene.image.Image;
 
-public class SpotifyController {
+public class SpotifyAPI {
 
 	//<editor-fold defaultstate="collapsed" desc="Login Credentials">
 	private static final String SPOTIFY_CLIENT_ID;
@@ -26,7 +26,7 @@ public class SpotifyController {
 	//</editor-fold>
 
 	static {
-		Scanner sc = new Scanner(SpotifyController.class.getClassLoader().getResourceAsStream("spotify_key"));
+		Scanner sc = new Scanner(SpotifyAPI.class.getClassLoader().getResourceAsStream("spotify_key"));
 		SPOTIFY_CLIENT_ID = sc.nextLine();
 		SPOTIFY_CLIENT_SECRET = sc.nextLine();
 		sc.close();
@@ -135,13 +135,14 @@ public class SpotifyController {
 		try {
 			// Prepare and send query
 			String endpoint = "https://api.spotify.com/v1/search";
-			String params = "market=CA&type=artist&q=" + artistNameQuery;
+			String params = "market=CA&type=artist&limit=1&q=" + artistNameQuery;
 			String jsonOutput = sendRequest(endpoint, params);
 
 			// Parse result
 			JsonObject obj = new JsonParser().parse(jsonOutput).getAsJsonObject();
-			return obj.get("artists").getAsJsonObject().get("items").getAsJsonArray().get(0).getAsJsonObject().get("id").getAsString();
-		} catch (JsonSyntaxException ex) {
+			JsonArray items = obj.getAsJsonObject("artists").getAsJsonArray("items");
+			return (items.size() != 0) ? items.get(0).getAsJsonObject().get("id").getAsString() : null;
+		} catch (RuntimeException ex) {
 			throw new AssertionError(ex);
 		}
 	}

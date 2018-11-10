@@ -1,5 +1,6 @@
 /dist/*
 /src/spotify_key
 /nbproject/*
-/build/*
+./build/*
 /images/*
+./build/classes/*
